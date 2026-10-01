@@ -1,0 +1,703 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "b7dc5df2-97d0-4c3f-bca5-b9075082e6aa",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "type": 4,
+            "isRequired": true,
+            "typeSettings": {
+              "selectableValues": [
+                {
+                  "durationMs": 3600000
+                },
+                {
+                  "durationMs": 86400000
+                },
+                {
+                  "durationMs": 604800000
+                }
+              ],
+              "allowCustom": true
+            },
+            "value": {
+              "durationMs": 86400000
+            }
+          },
+          {
+            "id": "3014c964-0790-4fe4-8786-52763fcc83a7",
+            "version": "KqlParameterItem/1.0",
+            "name": "Subscriptions",
+            "label": "Subscription",
+            "type": 6,
+            "isRequired": true,
+            "multiSelect": true,
+            "quote": "'",
+            "delimiter": ",",
+            "query": "Resources\n| summarize by subscriptionId\n| project value=subscriptionId, label=subscriptionId, selected=true\n| order by label asc",
+            "crossComponentResources": ["value::all"],
+            "typeSettings": {
+              "additionalResourceOptions": [],
+              "showDefault": true
+            },
+            "queryType": 1,
+            "resourceType": "microsoft.resourcegraph/resources",
+            "value": []
+          },
+          {
+            "id": "01be039b-055c-4f12-b63c-686628001f8d",
+            "version": "KqlParameterItem/1.0",
+            "name": "Workspace",
+            "type": 5,
+            "isRequired": true,
+            "multiSelect": false,
+            "quote": "'",
+            "delimiter": ",",
+            "query": "Resources\n| where type =~ 'microsoft.operationalinsights/workspaces'\n| project value=id, label=id, selected=false, group=resourceGroup\n| order by label asc",
+            "crossComponentResources": ["{Subscriptions}"],
+            "typeSettings": {
+              "showDefault": false,
+              "additionalResourceOptions": []
+            },
+            "queryType": 1,
+            "resourceType": "microsoft.resourcegraph/resources",
+            "value": []
+          },
+          {
+            "id": "b14f9b37-8e84-48a9-a823-b796e178ce4a",
+            "version": "KqlParameterItem/1.0",
+            "name": "AppGateways",
+            "label": "Application Gateway",
+            "type": 2,
+            "isRequired": true,
+            "multiSelect": true,
+            "quote": "'",
+            "delimiter": ",",
+            "query": "Resources\n| where type =~ 'microsoft.network/applicationgateways'\n| project value=id, label=name, selected=true, group=resourceGroup\n| order by label asc",
+            "crossComponentResources": ["{Subscriptions}"],
+            "typeSettings": {
+              "defaultItemsText": "All Application Gateways"
+            },
+            "queryType": 1,
+            "resourceType": "microsoft.resourcegraph/resources",
+            "value": []
+          },
+          {
+            "id": "ccda47f8-396d-4559-9e33-d86dd664f55f",
+            "version": "KqlParameterItem/1.0",
+            "name": "selectedTab",
+            "type": 1,
+            "isRequired": true,
+            "isHiddenWhenLocked": true,
+            "value": "Overview"
+          }
+        ],
+        "style": "above",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces"
+      },
+      "name": "Workbook parameters"
+    },
+    {
+      "type": 11,
+      "content": {
+        "version": "LinkItem/1.0",
+        "style": "tabs",
+        "links": [
+          {
+            "cellValue": "selectedTab",
+            "linkTarget": "parameter",
+            "linkLabel": "Overview",
+            "subTarget": "Overview",
+            "style": "link"
+          },
+          {
+            "cellValue": "selectedTab",
+            "linkTarget": "parameter",
+            "linkLabel": "All traffic",
+            "subTarget": "All traffic",
+            "style": "link"
+          },
+          {
+            "cellValue": "selectedTab",
+            "linkTarget": "parameter",
+            "linkLabel": "Blocked traffic",
+            "subTarget": "Blocked traffic",
+            "style": "link"
+          },
+          {
+            "cellValue": "selectedTab",
+            "linkTarget": "parameter",
+            "linkLabel": "Gateway metrics",
+            "subTarget": "Gateway metrics",
+            "style": "link"
+          }
+        ]
+      },
+      "name": "Workbook tabs"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Application Gateway WAF and traffic\n\nChoose a time range, **subscription**, **Log Analytics workspace**, and one or more **Application Gateways** above. The subscription selection feeds the workspace and gateway pickers. All subscriptions and gateways are selected by default; adjust the selectors to narrow the workbook. This workbook queries the **resource-specific** `AGWAccessLogs` and `AGWFirewallLogs` tables in the selected workspace. Enable the Application Gateway access and firewall diagnostic categories and send them to this workspace."
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "Overview"
+      },
+      "name": "Overview introduction"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "Traffic and response summary",
+        "query": "let Summary=materialize(AGWAccessLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| summarize Requests=count(), Gateways=dcount(_ResourceId), ServerErrors=countif(HttpStatus between (500 .. 599)), ClientErrors=countif(HttpStatus between (400 .. 499)), AvgGatewayTimeMs=round(avg(TimeTaken) * 1000.0, 1), P95GatewayTimeMs=round(percentile(TimeTaken * 1000.0, 95), 1));\nunion\n(Summary | project Metric=\"Total requests\", Value=toreal(Requests), Context=\"Requests\"),\n(Summary | project Metric=\"Application Gateways\", Value=toreal(Gateways), Context=\"Selected scope\"),\n(Summary | project Metric=\"4xx responses\", Value=toreal(ClientErrors), Context=\"Client errors\"),\n(Summary | project Metric=\"5xx responses\", Value=toreal(ServerErrors), Context=\"Server errors\"),\n(Summary | project Metric=\"Average total time\", Value=AvgGatewayTimeMs, Context=\"Milliseconds\"),\n(Summary | project Metric=\"P95 total time\", Value=P95GatewayTimeMs, Context=\"Milliseconds\")",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "tiles",
+        "tileSettings": {
+          "titleContent": {
+            "columnMatch": "Metric",
+            "formatter": 1
+          },
+          "leftContent": {
+            "columnMatch": "Value",
+            "formatter": 1,
+            "numberFormat": {
+              "unit": 17,
+              "options": {
+                "style": "decimal",
+                "useGrouping": true,
+                "maximumFractionDigits": 1
+              }
+            }
+          },
+          "secondaryContent": {
+            "columnMatch": "Context",
+            "formatter": 1
+          },
+          "showBorder": true,
+          "size": "fixed"
+        }
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "Overview"
+      },
+      "name": "Traffic summary"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "WAF activity summary",
+        "query": "let Summary=materialize(AGWFirewallLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| extend ActionNorm=tolower(Action)\n| summarize WafEvents=count(), BlockEvents=countif(ActionNorm in (\"blocked\", \"detected and blocked\", \"jschallengeblock\")), BlockedTransactions=dcountif(TransactionId, ActionNorm in (\"blocked\", \"detected and blocked\", \"jschallengeblock\")), MatchedRuleEvents=countif(ActionNorm == \"matched\"), DetectionOnlyEvents=countif(ActionNorm == \"detected\"));\nunion\n(Summary | project Metric=\"WAF log events\", Value=toreal(WafEvents), Context=\"All actions\"),\n(Summary | project Metric=\"Blocked transactions\", Value=toreal(BlockedTransactions), Context=\"Distinct requests\"),\n(Summary | project Metric=\"Block rule events\", Value=toreal(BlockEvents), Context=\"Blocking actions\"),\n(Summary | project Metric=\"Matched rule events\", Value=toreal(MatchedRuleEvents), Context=\"Contributing matches\"),\n(Summary | project Metric=\"Detection-only events\", Value=toreal(DetectionOnlyEvents), Context=\"Not blocked\")",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "tiles",
+        "tileSettings": {
+          "titleContent": {
+            "columnMatch": "Metric",
+            "formatter": 1
+          },
+          "leftContent": {
+            "columnMatch": "Value",
+            "formatter": 1,
+            "numberFormat": {
+              "unit": 17,
+              "options": {
+                "style": "decimal",
+                "useGrouping": true,
+                "maximumFractionDigits": 0
+              }
+            }
+          },
+          "secondaryContent": {
+            "columnMatch": "Context",
+            "formatter": 1
+          },
+          "showBorder": true,
+          "size": "fixed"
+        }
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "Overview"
+      },
+      "name": "WAF summary"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "Traffic disposition",
+        "query": "let TotalRequests=toscalar(AGWAccessLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| count);\nlet BlockedRaw=toscalar(AGWFirewallLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| where tolower(Action) in (\"blocked\", \"detected and blocked\", \"jschallengeblock\")\n| summarize dcount(TransactionId));\nlet Blocked=min_of(TotalRequests, BlockedRaw);\nlet Passed=max_of(TotalRequests - Blocked, 0);\nlet BlockRate=iff(TotalRequests == 0, 0.0, round(100.0 * Blocked / TotalRequests, 2));\nunion\n(print Disposition=strcat(\"Blocked (\", BlockRate, \"%)\"), Requests=Blocked),\n(print Disposition=\"Not blocked\", Requests=Passed)",
+        "size": 1,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "piechart"
+      },
+      "customWidth": "33",
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "Overview"
+      },
+      "name": "Overview traffic disposition"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "HTTP response distribution",
+        "query": "AGWAccessLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| extend StatusGroup=strcat(tostring(toint(HttpStatus / 100)), \"xx\")\n| summarize Requests=count() by StatusGroup\n| order by StatusGroup asc",
+        "size": 1,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "piechart"
+      },
+      "customWidth": "33",
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "Overview"
+      },
+      "name": "Overview response distribution"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "Top blocking rules",
+        "query": "AGWFirewallLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| where tolower(Action) in (\"blocked\", \"detected and blocked\", \"jschallengeblock\")\n| extend Rule=iff(isempty(RuleId), Message, strcat(RuleId, \" - \", Message))\n| summarize Blocks=count() by Rule\n| top 8 by Blocks desc",
+        "size": 1,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "barchart"
+      },
+      "customWidth": "33",
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "Overview"
+      },
+      "name": "Overview top blocking rules"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "Requests over time",
+        "query": "AGWAccessLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| summarize Requests=count() by bin(TimeGenerated, 5m)\n| order by TimeGenerated asc",
+        "size": 1,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "time"
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "Overview"
+      },
+      "name": "Overview request trend"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "WAF block events over time",
+        "query": "AGWFirewallLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| where tolower(Action) in (\"blocked\", \"detected and blocked\", \"jschallengeblock\")\n| summarize BlockEvents=count() by bin(TimeGenerated, 5m)\n| order by TimeGenerated asc",
+        "size": 1,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "time"
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "Overview"
+      },
+      "name": "Overview block trend"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## All traffic\n\nAccess-log view of requests handled by Application Gateway. `TimeTaken` is end-to-end request time and can include client network, gateway, and backend time; it isn't gateway processing time alone."
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "All traffic"
+      },
+      "name": "All traffic introduction"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "Request volume by HTTP status",
+        "query": "AGWAccessLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| summarize Requests=count() by bin(TimeGenerated, 5m), StatusGroup=strcat(tostring(toint(HttpStatus / 100)), \"xx\")\n| order by TimeGenerated asc",
+        "size": 1,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "time"
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "All traffic"
+      },
+      "name": "All traffic status trend"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "HTTP response distribution",
+        "query": "AGWAccessLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| extend StatusGroup=strcat(tostring(toint(HttpStatus / 100)), \"xx\")\n| summarize Requests=count() by StatusGroup\n| order by StatusGroup asc",
+        "size": 1,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "piechart"
+      },
+      "customWidth": "50",
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "All traffic"
+      },
+      "name": "All traffic response distribution"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "Request volume by listener",
+        "query": "AGWAccessLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| summarize Requests=count() by Listener=iff(isempty(ListenerName), \"(unknown)\", ListenerName)\n| top 10 by Requests desc",
+        "size": 1,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "barchart"
+      },
+      "customWidth": "50",
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "All traffic"
+      },
+      "name": "All traffic by listener"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "End-to-end and WAF evaluation latency",
+        "query": "AGWAccessLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| summarize AvgEndToEndMs=avg(TimeTaken) * 1000.0, P95EndToEndMs=percentile(TimeTaken * 1000.0, 95), AvgWafEvaluationMs=avg(WafEvaluationTime) * 1000.0 by bin(TimeGenerated, 5m)\n| order by TimeGenerated asc",
+        "size": 1,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "time"
+      },
+      "customWidth": "50",
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "All traffic"
+      },
+      "name": "All traffic latency trend"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "Top backend pools by request volume",
+        "query": "AGWAccessLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| summarize Requests=count(), AvgBackendLatencyMs=round(avg(ServerResponseLatency) * 1000.0, 1), FailedRequests=countif(HttpStatus >= 500 or ServerStatus >= 500) by BackendPool=iff(isempty(BackendPoolName), \"(unknown)\", BackendPoolName)\n| top 10 by Requests desc",
+        "size": 1,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "barchart"
+      },
+      "customWidth": "50",
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "All traffic"
+      },
+      "name": "All traffic by backend pool"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "Requests, errors, and latency by gateway",
+        "query": "AGWAccessLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| summarize Requests=count(), ClientErrors=countif(HttpStatus between (400 .. 499)), ServerErrors=countif(HttpStatus between (500 .. 599)), AvgTimeMs=round(avg(TimeTaken) * 1000.0, 1), P95TimeMs=round(percentile(TimeTaken * 1000.0, 95), 1), AvgWafEvaluationMs=round(avg(WafEvaluationTime) * 1000.0, 1) by Gateway=tostring(split(_ResourceId, \"/\")[-1])\n| order by Requests desc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "table",
+        "gridSettings": {
+          "filter": true,
+          "sortBy": [
+            {
+              "itemKey": "Requests",
+              "sortOrder": 2
+            }
+          ]
+        }
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "All traffic"
+      },
+      "name": "All traffic gateway summary"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "Recent requests",
+        "query": "AGWAccessLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| project TimeGenerated, Gateway=tostring(split(_ResourceId, \"/\")[-1]), ClientIp, Host, HttpMethod, RequestUri, HttpStatus, ServerStatus, WafMode, WafPolicyId, ListenerName, BackendPoolName, ServerRouted, TimeTaken, WafEvaluationTime, ErrorInfo, TransactionId\n| order by TimeGenerated desc",
+        "size": 2,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "table",
+        "gridSettings": {
+          "filter": true
+        }
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "All traffic"
+      },
+      "name": "All traffic request details"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Blocked traffic and rule-level reasons\n\nThe detail grid shows the blocking WAF event **and** any `Matched` rule events for the same transaction. `Message` identifies the rule/event; `DetailedMessage` explains the match; `DetailedData` shows the request value that matched. A transaction can produce multiple rows because multiple rules can contribute to a block. Treat request data in these fields as sensitive."
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "Blocked traffic"
+      },
+      "name": "Blocked traffic introduction"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "Blocked requests by rule",
+        "query": "AGWFirewallLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| where tolower(Action) in (\"blocked\", \"detected and blocked\", \"jschallengeblock\")\n| summarize BlockEvents=count(), Transactions=dcount(TransactionId), Clients=dcount(ClientIp) by RuleId, Message, RuleSetType, RuleSetVersion, PolicyScope, PolicyScopeName\n| order by BlockEvents desc",
+        "size": 1,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "barchart",
+        "gridSettings": {
+          "filter": true
+        }
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "Blocked traffic"
+      },
+      "name": "Blocked rules summary"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "Blocked transactions: blocking event and contributing rule matches",
+        "query": "let BlockedTransactions=AGWFirewallLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| where tolower(Action) in (\"blocked\", \"detected and blocked\", \"jschallengeblock\")\n| where isnotempty(TransactionId)\n| distinct _ResourceId, TransactionId;\nlet Access=AGWAccessLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| where isnotempty(TransactionId)\n| summarize arg_max(TimeGenerated, HttpStatus, ServerStatus, TimeTaken, ListenerName, BackendPoolName, ServerRouted) by _ResourceId, TransactionId\n| project _ResourceId, TransactionId, HttpStatus, ServerStatus, TimeTaken, ListenerName, BackendPoolName, ServerRouted;\nAGWFirewallLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| extend ActionNorm=tolower(Action)\n| where ActionNorm in (\"blocked\", \"detected and blocked\", \"jschallengeblock\", \"matched\")\n| where isnotempty(TransactionId)\n| join kind=inner BlockedTransactions on _ResourceId, TransactionId\n| join kind=leftouter Access on _ResourceId, TransactionId\n| extend EventRole=iff(ActionNorm == \"matched\", \"Contributing rule match\", \"Blocking event\"), Reason=strcat(Message, \" | \", DetailedMessage, iff(isnotempty(DetailedData), strcat(\" | Matched data: \", DetailedData), \"\"))\n| project TimeGenerated, Gateway=tostring(split(_ResourceId, \"/\")[-1]), ClientIp, Hostname, RequestUri, EventRole, Action, RuleId, RuleSetType, RuleSetVersion, PolicyScope, PolicyScopeName, Message, DetailedMessage, DetailedData, Reason, HttpStatus, ServerStatus, TimeTaken, ListenerName, BackendPoolName, ServerRouted, TransactionId, PolicyId, FileDetails, LineDetails\n| order by TimeGenerated desc",
+        "size": 2,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "table",
+        "gridSettings": {
+          "filter": true,
+          "sortBy": [
+            {
+              "itemKey": "TimeGenerated",
+              "sortOrder": 2
+            }
+          ]
+        }
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "Blocked traffic"
+      },
+      "name": "Blocked request forensics"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "Top client IPs by blocked transactions",
+        "query": "AGWFirewallLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| where tolower(Action) in (\"blocked\", \"detected and blocked\", \"jschallengeblock\")\n| summarize BlockEvents=count(), Transactions=dcount(TransactionId), Rules=make_set(RuleId, 10), Paths=make_set(RequestUri, 5) by ClientIp\n| order by Transactions desc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "table",
+        "gridSettings": {
+          "filter": true
+        }
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "Blocked traffic"
+      },
+      "name": "Blocked clients"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Gateway metrics (derived from access logs)\n\nThese panels use `AGWAccessLogs` for request volume, response codes, end-to-end latency, WAF evaluation time, and backend response details. They are request-log measurements, not Azure Monitor platform metrics. For native metrics such as **Healthy Host Count**, **Unhealthy Host Count**, **Capacity Units**, and **CPU Utilization**, use the Application Gateway resource's **Metrics** blade; those metrics aren't all exported to Log Analytics."
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "Gateway metrics"
+      },
+      "name": "Gateway metrics introduction"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "End-to-end and WAF evaluation latency",
+        "query": "AGWAccessLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| summarize AvgEndToEndMs=avg(TimeTaken) * 1000.0, P95EndToEndMs=percentile(TimeTaken * 1000.0, 95), AvgWafEvaluationMs=avg(WafEvaluationTime) * 1000.0, P95WafEvaluationMs=percentile(WafEvaluationTime * 1000.0, 95) by bin(TimeGenerated, 5m)\n| order by TimeGenerated asc",
+        "size": 1,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "time"
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "Gateway metrics"
+      },
+      "name": "Gateway latency"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "Backend response codes",
+        "query": "AGWAccessLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| where isnotnull(ServerStatus)\n| summarize Responses=count() by BackendStatus=tostring(ServerStatus), BackendPoolName\n| order by Responses desc",
+        "size": 1,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "barchart"
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "Gateway metrics"
+      },
+      "name": "Gateway backend status"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "title": "Backend latency and connection time by pool",
+        "query": "AGWAccessLogs\n| where TimeGenerated {TimeRange}\n| where _ResourceId in~ ({AppGateways})\n| summarize Requests=count(), AvgBackendResponseMs=round(avg(ServerResponseLatency) * 1000.0, 1), P95BackendResponseMs=round(percentile(ServerResponseLatency * 1000.0, 95), 1), AvgBackendConnectMs=round(avg(ServerConnectTime) * 1000.0, 1), FailedRequests=countif(HttpStatus >= 500 or ServerStatus >= 500) by Gateway=tostring(split(_ResourceId, \"/\")[-1]), BackendPoolName, BackendSettingName\n| order by FailedRequests desc",
+        "size": 0,
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "crossComponentResources": [
+          "{Workspace}"
+        ],
+        "visualization": "table",
+        "gridSettings": {
+          "filter": true
+        }
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "Gateway metrics"
+      },
+      "name": "Gateway backend metrics"
+    }
+  ],
+  "fallbackResourceIds": [
+    "Azure Monitor"
+  ],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}
